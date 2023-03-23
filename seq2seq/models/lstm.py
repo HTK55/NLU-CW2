@@ -179,15 +179,25 @@ class AttentionLayer(nn.Module):
                 # sent_tensor.size = [batch, sent_len, hidden]
         2.  Why do we need to apply a mask to the attention scores?
         '''
+
+        """We apply a mask to the attention scores to set un-included tokens' attention scores to -inf, effectively 
+        telling the decoder to ignore them. There are many reasons we may not want to include certain tokens in the
+        input sequence, including end-of-sentence padding tokens used to pad sentences length and source words that do 
+        not have direct translations in the target language"""
         if src_mask is not None:
             src_mask = src_mask.unsqueeze(dim=1)
+            # src_mask.size = [batch_size, 1, src_time_steps] after unsqueeze
             attn_scores.masked_fill_(src_mask, float('-inf'))
 
         attn_weights = F.softmax(attn_scores, dim=-1)
+        # attn_weights.size = [batch_size, 1, src_time_steps]
         attn_context = torch.bmm(attn_weights, encoder_out).squeeze(dim=1)
+        # attn_context.size = [batch_size, output_dims]
 
         context_plus_hidden = torch.cat([tgt_input, attn_context], dim=1)
+        # context_plus_hidden.size = [batch_size, input_dims + output_dims]
         attn_out = torch.tanh(self.context_plus_hidden_projection(context_plus_hidden))
+        # attn_out.size = [batch_size, output_dims]
         '''___QUESTION-1-DESCRIBE-A-END___'''
 
         return attn_out, attn_weights.squeeze(dim=1)
