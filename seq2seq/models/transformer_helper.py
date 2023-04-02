@@ -32,6 +32,11 @@ class TransformerEncoderLayer(nn.Module):
         ___QUESTION-5-DESCRIBE-D-START___
         1.  What is the purpose of encoder_padding_mask? 
         '''
+        """The purpose of encoder_padding_mask is to mask the input sequence elements that are padding tokens. This 
+        ensures that these tokens are not considered in the computation of attention weights during the 
+        self-attention mechanism. It is important to mask padding tokens because they do not contain meaningful 
+        information and could affect the attention distribution in unwanted ways. """
+
         state, _ = self.self_attn(query=state, key=state, value=state, key_padding_mask=encoder_padding_mask)
         '''
         ___QUESTION-5-DESCRIBE-D-END___
@@ -115,6 +120,20 @@ class TransformerDecoderLayer(nn.Module):
         2.  What is the difference between key_padding_mask and attn_mask? 
         3.  If you understand this difference, then why don't we need to give attn_mask here?
         '''
+        """The encoder attention is used to attend to the encoder output, while self-attention is used to attend to 
+        the decoder input sequence. The queries and keys for encoder attention are derived from the decoder's 
+        previous hidden state, while the queries and keys for self-attention are derived from the decoder's current 
+        hidden state. 
+        
+        key_padding_mask is used to mask the encoder output, where padded elements are set to a very large negative 
+        value (-inf) and the softmax operation will ignore these padded elements. On the other hand, attn_mask is 
+        used to mask the decoder's self-attention weights where elements in the mask tensor are set to a very large 
+        negative value, so that the corresponding weights will be zeroed out by the softmax operation. 
+        
+        The attn_mask is only used in self-attention to prevent positions from attending to subsequent positions, 
+        which is not needed in encoder-decoder attention. Therefore, attn_mask is not passed to the encoder attention 
+        layer. """
+
         state, attn = self.encoder_attn(query=state,
                                         key=encoder_out,
                                         value=encoder_out,
