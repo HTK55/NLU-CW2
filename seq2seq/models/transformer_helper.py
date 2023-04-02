@@ -194,6 +194,8 @@ class MultiHeadAttention(nn.Module):
 
         # Get size features
         tgt_time_steps, batch_size, embed_dim = query.size()
+        key_size = key.size()    # has same size tgt_time_steps*batch_size*embed_dim
+        value_size = value.size()
         assert self.embed_dim == embed_dim
 
         '''
@@ -203,18 +205,63 @@ class MultiHeadAttention(nn.Module):
         be expected if attn_mask or key_padding_mask are given?
         '''
 
-        # attn is the output of MultiHead(Q,K,V) in Vaswani et al. 2017
-        # attn must be size [tgt_time_steps, batch_size, embed_dim]
-        # attn_weights is the combined output of h parallel heads of Attention(Q,K,V) in Vaswani et al. 2017
-        # attn_weights must be size [num_heads, batch_size, tgt_time_steps, key.size(0)]
-        # TODO: REPLACE THESE LINES WITH YOUR IMPLEMENTATION ------------------------ CUT
-        attn = torch.zeros(size=(tgt_time_steps, batch_size, embed_dim))
-        attn_weights = torch.zeros(size=(self.num_heads, batch_size, tgt_time_steps, -1)) if need_weights else None
-        # TODO: --------------------------------------------------------------------- CUT
+        '''  1. Linear projection of Query, Key and Value.
+        q, k, v = shape(tgt_time_steps, batch_size, embed_dim)
+        '''
+        q = self.q_proj(query).contiguous()
+        q = q.view(-1, batch_size, self.num_heads, self.head_embed_size)
+        
+        k = self.k_proj(key).contiguous()
+        k = k.view(-1, batch_size, self.num_heads, self.head_embed_size)
 
+        v = self.v_proj(value).contiguous()
+        v = v.view(-1, batch_size, self.num_heads, self.head_embed_size)
+        
+        ''' 2. Computing scaled dot-product attention for h attention heads.
+        q, k, v = shape(tgt_time_steps, batch_size, embed_dim) -> shape(num_heads * batch_size, tgt_time_steps, embed_dim)
         '''
-        ___QUESTION-6-MULTIHEAD-ATTENTION-END
-        '''
+
+        q = q.transpose(0, 2).contiguous().view(self.num_heads * batch_size, -1, self.head_embed_size)
+        k = k.transpose(0, 2).contiguous().view(self.num_heads * batch_size, -1, self.head_embed_size)
+        v = v.transpose(0, 2).contiguous().view(self.num_heads * batch_size, -1, self.head_embed_size)
+
+
+        #  attn_weights = shape(num_heads*batch_size, tgt_time_steps, k_embed_size)
+        attn_weights = torch.bmm(q,k.transpose(1,2)) / self.head_scaling  
+
+        if key_padding_mask is not None:
+    
+            # size(batch_size, tgt_time_steps) -> size(batch_size, 1, tgt_time_steps)
+            key_padding_mask = key_padding_mask.unsqueeze(dim=1)
+            # size(batch_size, 1, tgt_time_steps) -> size(num_heads*batch_size, 1, tgt_time_steps)
+            key_padding_mask = key_padding_mask.repeat(self.num_heads,1,1)            
+            # Mask the weights
+            attn_weights.masked_fill(key_padding_mask, float("-inf"))
+        
+        if attn_mask is not None:
+            # shape(tgt_time_steps, src_time_steps) -> shape(1，tgt_time_steps, src_time_steps)
+            attn_mask = attn_mask.unsqueeze(dim=0)
+
+            # shape(1，tgt_time_steps, src_time_steps) -> shape(self.num_heads * batch_size, tgt_time_steps, src_time_steps)
+            attn_mask_ = attn_mask.repeat(self.num_heads * batch_size,1,1)
+            attn_mask = (attn_mask == float("-inf"))
+            attn_weights.masked_fill_(attn_mask, float("-inf"))
+
+        attn_weights = F.softmax(attn_weights, dim=-1)
+        attn = torch.bmm(attn_weights, v)
+
+        ''' 3. Concatenation of heads and output projection.'''
+        #shape(num_heads*batch_size, tgt_time_steps, head_embed_size) -> shape(num_heads, batch_size, tgt_time_steps, head_embed_size)
+        attn = attn.contiguous().view(self.num_heads, batch_size, tgt_time_steps, self.head_embed_size)
+        #shape(num_heads, batch_size, tgt_time_steps, head_embed_size) -> shape(tgt_time_steps, batch_size, num_heads, head_embed_size)
+        attn = attn.transpose(0,2)
+        # shape(tgt_time_steps, batch_size, num_heads, head_embed_size) -> shape(tgt_time_steps, batch_size, num_heads * head_embed_size)
+        attn = attn.contiguous().view(tgt_time_steps, batch_size, self.num_heads * self.head_embed_size)
+        attn = self.out_proj(attn)
+
+        #shape(num_heads*batch_size, tgt_time_steps, k_embed_size) -> shape(num_heads, batch_size, tgt_time_steps, k_embed_size)
+        attn_weights = attn_weights.contiguous().view(self.num_heads, batch_size, tgt_time_steps, -1)
+        attn_weights = attn_weights if need_weights else None
 
         return attn, attn_weights
 
@@ -260,7 +307,8 @@ class PositionalEmbedding(nn.Module):
         positions = (torch.cumsum(mask, dim=1).type_as(inputs) * mask).long() + self.padding_idx
 
         # Lookup positional embeddings for each position and return in shape of input tensor w/o gradient
-        return self.weights.index_select(0, positions.view(-1)).view(batch_size, seq_len, -1).detach()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        return self.weights.index_select(0, positions.view(-1).to(device)).view(batch_size, seq_len, -1).to(device).detach()
 
 
 def LayerNorm(normal_shape, eps=1e-5):

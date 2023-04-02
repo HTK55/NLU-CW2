@@ -88,7 +88,9 @@ class TransformerEncoder(Seq2SeqEncoder):
 
     def forward(self, src_tokens, src_lengths):
         # Embed tokens indices
-        embeddings = self.embed_scale * self.embedding(src_tokens)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        embeddings = self.embed_scale * self.embedding(src_tokens.to(device))
 
         # Clone for output state
         src_embeddings = embeddings.clone()
@@ -98,7 +100,7 @@ class TransformerEncoder(Seq2SeqEncoder):
         1.  Add tensor shape annotation to each of the output tensor
         2.  What is the purpose of the positional embeddings in the encoder and decoder? 
         '''
-        embeddings += self.embed_positions(src_tokens)
+        embeddings += self.embed_positions(src_tokens.to(device))
         '''
         ___QUESTION-5-DESCRIBE-A-END___
         '''
@@ -114,7 +116,9 @@ class TransformerEncoder(Seq2SeqEncoder):
 
         # Forward pass through each Transformer Encoder Layer
         for layer in self.layers:
-            forward_state = layer(state=forward_state, encoder_padding_mask=encoder_padding_mask)
+            if encoder_padding_mask is not None:
+                encoder_padding_mask = encoder_padding_mask.to(device)
+            forward_state = layer(state=forward_state.to(device), encoder_padding_mask=encoder_padding_mask)
 
         return {
             "src_out": forward_state,   # [src_time_steps, batch_size, num_features]
@@ -166,7 +170,8 @@ class TransformerDecoder(Seq2SeqDecoder):
             if positions is not None:
                 positions = positions[:, -1:]
 
-        forward_state = self.embed_scale * self.embedding(tgt_inputs)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        forward_state = self.embed_scale * self.embedding(tgt_inputs.to(device))
         forward_state += positions
         forward_state = F.dropout(forward_state, p=self.dropout, training=self.training)
 

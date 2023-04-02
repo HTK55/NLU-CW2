@@ -109,8 +109,10 @@ class LSTMEncoder(Seq2SeqEncoder):
     def forward(self, src_tokens, src_lengths):
         """ Performs a single forward pass through the instantiated encoder sub-network. """
         # Embed tokens and apply dropout
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         batch_size, src_time_steps = src_tokens.size()
-        src_embeddings = self.embedding(src_tokens)
+        src_embeddings = self.embedding(src_tokens.to(device)).to(device)
         _src_embeddings = F.dropout(src_embeddings, p=self.dropout_in, training=self.training)
 
         # Transpose batch: [batch_size, src_time_steps, num_features] -> [src_time_steps, batch_size, num_features]
@@ -184,10 +186,11 @@ class AttentionLayer(nn.Module):
         telling the decoder to ignore them. There are many reasons we may not want to include certain tokens in the
         input sequence, including end-of-sentence padding tokens used to pad sentences length and source words that do 
         not have direct translations in the target language"""
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if src_mask is not None:
             src_mask = src_mask.unsqueeze(dim=1)
             # src_mask.size = [batch_size, 1, src_time_steps] after unsqueeze
-            attn_scores.masked_fill_(src_mask, float('-inf'))
+            attn_scores.masked_fill_(src_mask.to(device), float('-inf'))
 
         attn_weights = F.softmax(attn_scores, dim=-1)
         # attn_weights.size = [batch_size, 1, src_time_steps]
@@ -255,10 +258,8 @@ class LSTMDecoder(Seq2SeqDecoder):
 
         self.use_lexical_model = use_lexical_model
         if self.use_lexical_model:
-            # __QUESTION-4: Add parts of decoder architecture corresponding to the LEXICAL MODEL here
-            # TODO: --------------------------------------------------------------------- CUT
-            pass
-            # TODO: --------------------------------------------------------------------- /CUT
+            self.fc_hidden = nn.Linear(embed_dim, embed_dim, bias=False)
+            self.fc_out = nn.Linear(embed_dim, len(dictionary))
 
     def forward(self, tgt_inputs, encoder_out, incremental_state=None):
         """ Performs the forward pass through the instantiated model. """
@@ -275,8 +276,9 @@ class LSTMDecoder(Seq2SeqDecoder):
         src_time_steps = src_out.size(0)
 
         # Embed target tokens and apply dropout
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         batch_size, tgt_time_steps = tgt_inputs.size()
-        tgt_embeddings = self.embedding(tgt_inputs)
+        tgt_embeddings = self.embedding(tgt_inputs.to(device))
         tgt_embeddings = F.dropout(tgt_embeddings, p=self.dropout_in, training=self.training)
 
         # Transpose batch: [batch_size, tgt_time_steps, num_features] -> [tgt_time_steps, batch_size, num_features]
@@ -309,10 +311,12 @@ class LSTMDecoder(Seq2SeqDecoder):
             # Concatenate the current token embedding with output from previous time step (i.e. 'input feeding')
             lstm_input = torch.cat([tgt_embeddings[j, :, :], input_feed], dim=1)
 
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
             for layer_id, rnn_layer in enumerate(self.layers):
                 # Pass target input through the recurrent layer(s)
                 tgt_hidden_states[layer_id], tgt_cell_states[layer_id] = \
-                    rnn_layer(lstm_input, (tgt_hidden_states[layer_id], tgt_cell_states[layer_id]))
+                    rnn_layer(lstm_input.to(device), (tgt_hidden_states[layer_id].to(device), tgt_cell_states[layer_id].to(device)))
 
                 # Current hidden state becomes input to the subsequent layer; apply dropout
                 lstm_input = F.dropout(tgt_hidden_states[layer_id], p=self.dropout_out, training=self.training)
@@ -325,14 +329,14 @@ class LSTMDecoder(Seq2SeqDecoder):
             if self.attention is None:
                 input_feed = tgt_hidden_states[-1]
             else:
-                input_feed, step_attn_weights = self.attention(tgt_hidden_states[-1], src_out, src_mask)
+                input_feed, step_attn_weights = self.attention(tgt_hidden_states[-1].to(device), src_out.to(device), src_mask)
                 attn_weights[:, j, :] = step_attn_weights
 
                 if self.use_lexical_model:
-                    # __QUESTION-4: Compute and collect LEXICAL MODEL context vectors here
-                    # TODO: --------------------------------------------------------------------- CUT
-                    pass
-                    # TODO: --------------------------------------------------------------------- /CUT
+                    step_attn_weights = torch.unsqueeze(step_attn_weights, 1)
+                    context = torch.bmm(step_attn_weights,src_embeddings.transpose(0, 1))
+                    context = torch.tanh(context)   
+                    lexical_contexts.append(context)
 
             input_feed = F.dropout(input_feed, p=self.dropout_out, training=self.training)
             rnn_outputs.append(input_feed)
@@ -352,10 +356,11 @@ class LSTMDecoder(Seq2SeqDecoder):
         decoder_output = self.final_projection(decoder_output)
 
         if self.use_lexical_model:
-            # __QUESTION-4: Incorporate the LEXICAL MODEL into the prediction of target tokens here
-            # TODO: --------------------------------------------------------------------- CUT
-            pass
-            # TODO: --------------------------------------------------------------------- /CUT
+            '''Q4'''
+            weighted_embeddings = torch.cat(lexical_contexts, 1)
+            # h_t = tanh(W * f_t) + f_t
+            h_t = torch.tanh(self.fc_hidden(weighted_embeddings)) + weighted_embeddings
+            decoder_output += self.fc_out(h_t)
 
         return decoder_output, attn_weights
 
