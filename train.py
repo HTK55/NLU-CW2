@@ -123,13 +123,21 @@ def main(args):
             2.  Add line-by-line description about the following lines of code do.
             '''
             output, _ = model(sample['src_tokens'], sample['src_lengths'], sample['tgt_inputs'])
-
+            # compute the output predictions of the model given a sample of the input source tokens, their lengths
+            # and the input target tokens
             loss = \
                 criterion(output.view(-1, output.size(-1)), sample['tgt_tokens'].view(-1)) / len(sample['src_lengths'])
+            # compute the loss value by comparing the predicted output sequence with the target sequence using the
+            # criterion function. The loss is then averaged over the number of source sequences in the batch
             loss.backward()
+            # backpropagate the gradients of the loss
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_norm)
+            # clip the gradients to avoid exploding gradients where args.clip_norm is the maximum L2-norm
+            # allowed for the gradients
             optimizer.step()
+            # update the model parameters using the computed gradients
             optimizer.zero_grad()
+            # reset the gradients of the model parameters to zero for the next timestep
             '''___QUESTION-1-DESCRIBE-E-END___'''
 
             # Update statistics for progress bar

@@ -179,11 +179,11 @@ class AttentionLayer(nn.Module):
                 # sent_tensor.size = [batch, sent_len, hidden]
         2.  Why do we need to apply a mask to the attention scores?
         '''
-
         """We apply a mask to the attention scores to set un-included tokens' attention scores to -inf, effectively 
         telling the decoder to ignore them. There are many reasons we may not want to include certain tokens in the
         input sequence, including end-of-sentence padding tokens used to pad sentences length and source words that do 
         not have direct translations in the target language"""
+
         if src_mask is not None:
             src_mask = src_mask.unsqueeze(dim=1)
             # src_mask.size = [batch_size, 1, src_time_steps] after unsqueeze
@@ -210,8 +210,15 @@ class AttentionLayer(nn.Module):
         1.  Add tensor shape annotation to each of the output tensor
         2.  How are attention scores calculated? 
         '''
+        """Attention scores are calculated using the dot product (torch's batch matrix multiplication), between the 
+        target input (first hidden layer of the decoder) and the projected encoder output (hidden layer of the 
+        encoder at timestep t). In the resulting tensor each element represents the similarity (or attention score) 
+        between the target input and each timestep of the encoder output. """
+
         projected_encoder_out = self.src_projection(encoder_out).transpose(2, 1)
+        # projected_encoder_out.size = [batch_size, output_dims, src_time_steps]
         attn_scores = torch.bmm(tgt_input.unsqueeze(dim=1), projected_encoder_out)
+        # attn_scores.size = [batch_size, 1, src_time_steps]
         '''___QUESTION-1-DESCRIBE-B-END___'''
 
         return attn_scores
@@ -288,6 +295,13 @@ class LSTMDecoder(Seq2SeqDecoder):
         1.  When is cached_state == None? 
         2.  What role does input_feed play?
         '''
+        """cached_state == None when there is no previously cached state available. This occurs during the initial 
+        forward pass through the model, or if incremental generation is not being used. 
+        
+        If cached_state is not None, input_feed stores the attention output (context vector) from the previous 
+        decoding timestep and feeds it into the current timestep. This allows it to essentially act as "memory" for 
+        the attention mechanism."""
+
         cached_state = utils.get_incremental_state(self, incremental_state, 'cached_state')
         if cached_state is not None:
             tgt_hidden_states, tgt_cell_states, input_feed = cached_state
@@ -322,6 +336,16 @@ class LSTMDecoder(Seq2SeqDecoder):
             1.  Why is the attention function given the previous target state as one of its inputs? 
             2.  What is the purpose of the dropout layer?
             '''
+            """The attention function is given the previous target state as one of its inputs so that it can compute 
+            the alignment between the previous target hidden state and the source hidden states. This alignment helps 
+            the model to focus on the relevant parts of the source sequence for generating the next target token.
+            
+            The purpose of the dropout layer is to prevent overfitting by randomly dropping out some of the units ( 
+            setting them to zero) during training. This encourages the model to learn more robust representations 
+            that are less dependent on specific input patterns. By applying dropout to the hidden states, 
+            the model is forced to rely on more diverse and independent features for making predictions, 
+            which can improve its generalization performance on unseen data."""
+
             if self.attention is None:
                 input_feed = tgt_hidden_states[-1]
             else:

@@ -98,7 +98,13 @@ class TransformerEncoder(Seq2SeqEncoder):
         1.  Add tensor shape annotation to each of the output tensor
         2.  What is the purpose of the positional embeddings in the encoder and decoder? 
         '''
+        """The purpose of positional embeddings in the encoder and decoder is to provide the model with information 
+        about the position of each token in the sequence. This is important because the order of the tokens can 
+        greatly affect the meaning of the sequence. The positional embeddings are added to the token embeddings to 
+        create a combined embedding that includes information about both the token and its position in the sequence. """
+
         embeddings += self.embed_positions(src_tokens)
+        # embeddings.size = [sequence_length, batch_size, embed_dim]
         '''
         ___QUESTION-5-DESCRIBE-A-END___
         '''
@@ -190,7 +196,21 @@ class TransformerDecoder(Seq2SeqDecoder):
             3.  Why do we need it in the decoder but not in the encoder?
             4.  Why do we not need a mask for incremental decoding?
             '''
+            """The purpose of self_attn_mask is to prevent the decoder from attending to future tokens in the 
+            sequence, since they would not have been generated yet during training. It sets the future positions to 
+            negative infinity, so that when the softmax is applied, their weights become zero and their contribution 
+            to the attention distribution is eliminated. 
+            
+            We need the self_attn_mask in the decoder because during 
+            training, the decoder must generate the target sequence one token at a time, and it should not have 
+            access to future tokens. In contrast, during training the encoder generates the output for the entire 
+            sequence at once and does not have to attend to future tokens. 
+            
+            We do not need a mask for incremental 
+            decoding because during incremental decoding we decode the target sequence one token at a time and do not 
+            have access to future tokens. Thus, we do not need to mask them out. """
             self_attn_mask = self.buffered_future_mask(forward_state) if incremental_state is None else None
+            # self_attn_mask.size = [tgt_time_steps, tgt_time_steps] if incremental_state is None, otherwise = None
             '''
             ___QUESTION-5-DESCRIBE-B-END___
             '''
@@ -218,6 +238,12 @@ class TransformerDecoder(Seq2SeqDecoder):
             1.  Why do we need a linear projection after the decoder layers? 
             2.  What would the output represent if features_only=True?
             '''
+            """We need a linear projection after the decoder layers to transform the model's hidden state into output 
+            logits, which represent the model's prediction for the next token in the sequence. 
+            
+            If features_only=True, the output would be the model's hidden state after passing through the decoder 
+            layers without the final linear projection. This output is useful for tasks that require the hidden state 
+            of the model as features, such as language modeling. """
             forward_state = self.embed_out(forward_state)
             '''
             ___QUESTION-5-DESCRIBE-C-END___
