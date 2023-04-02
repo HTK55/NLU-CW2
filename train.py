@@ -80,10 +80,7 @@ def main(args):
 
     # Build model and optimization criterion
     model = models.build_model(args, src_dict, tgt_dict)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f'USING DEVICE: {device}')
-    if device == "cuda":
-        model.cuda()
+
     logging.info('Built a model with {:d} parameters'.format(sum(p.numel() for p in model.parameters())))
     criterion = nn.CrossEntropyLoss(ignore_index=src_dict.pad_idx, reduction='sum')
 
@@ -188,7 +185,6 @@ def validate(args, model, criterion, valid_dataset, epoch):
     stats['valid_loss'] = 0
     stats['num_tokens'] = 0
     stats['batch_size'] = 0
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Iterate over the validation set
     for i, sample in enumerate(valid_loader):
@@ -197,7 +193,7 @@ def validate(args, model, criterion, valid_dataset, epoch):
         with torch.no_grad():
             # Compute loss
             output, attn_scores = model(sample['src_tokens'], sample['src_lengths'], sample['tgt_inputs'])
-            loss = criterion(output.view(-1, output.size(-1)).to(device), sample['tgt_tokens'].view(-1).to(device))
+            loss = criterion(output.view(-1, output.size(-1)), sample['tgt_tokens'].view(-1))
         # Update tracked statistics
         stats['valid_loss'] += loss.item()
         stats['num_tokens'] += sample['num_tokens']

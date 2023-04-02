@@ -326,8 +326,7 @@ class PositionalEmbedding(nn.Module):
         positions = (torch.cumsum(mask, dim=1).type_as(inputs) * mask).long() + self.padding_idx
 
         # Lookup positional embeddings for each position and return in shape of input tensor w/o gradient
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        return self.weights.index_select(0, positions.view(-1).to(device)).view(batch_size, seq_len, -1).to(device).detach()
+        return self.weights.index_select(0, positions.view(-1)).view(batch_size, seq_len, -1).detach()
 
 
 def LayerNorm(normal_shape, eps=1e-5):
